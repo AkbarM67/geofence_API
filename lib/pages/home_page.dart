@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:geo_fencing_vat/pages/tracking_history_page.dart';
 import 'package:http/http.dart' as http;
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 import 'package:geo_fencing_vat/pages/geofence_page.dart';
@@ -71,7 +72,17 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Daftar Lokasi")),
+      appBar: AppBar(title: const Text("Daftar Lokasi"),
+      actions: [
+        IconButton(icon: Icon(Icons.history),
+          onPressed: (){
+            Navigator.push(
+              context,
+               MaterialPageRoute(builder: (_) => const TrackingHistoryPage()));
+          },
+          )
+      ],
+      ),
       body: Column(
         children: [
           Padding(
@@ -81,10 +92,12 @@ class _HomePageState extends State<HomePage> {
                 labelText: 'Cari berdasarkan ID atau Nama',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.search),
+                
               ),
               onChanged: _onSearch,
             ),
           ),
+        
           Expanded(
             child: PagedListView<int, Map<String, dynamic>>(
               pagingController: _pagingController,

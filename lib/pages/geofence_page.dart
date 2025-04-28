@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:geo_fencing_vat/services/geofence_service.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:vibration/vibration.dart';
 
 class GeofencePage extends StatefulWidget {
   final String name;
@@ -23,13 +25,23 @@ class _GeofencePageState extends State<GeofencePage> {
   bool _isSatellite = false;
 
   StreamSubscription<Position>? _positionStream;
-  Marker? _userMarker;
+  StreamSubscription<QuerySnapshot>? _trackingStream;
+
+  bool _isInsidePolygon = false;
+  bool _showInsideText = false;
+  String? _areaStatusText;
+
+  List<LatLng> _polygonPoints = [];
+
+  int _masukCount = 0;
+  int _keluarCount = 0;
 
   @override
   void initState() {
     super.initState();
     _loadPolygonDetail();
     _startUserLocationTracking();
+    _startTrackingCountListener();
   }
 
   Future<void> _loadPolygonDetail() async {
@@ -69,6 +81,7 @@ class _GeofencePageState extends State<GeofencePage> {
         ),
       );
 
+      _polygonPoints = points;
       _initialPos = center;
     });
 
@@ -93,10 +106,10 @@ class _GeofencePageState extends State<GeofencePage> {
     );
 
     _positionStream = Geolocator.getPositionStream(locationSettings: locationSettings)
-        .listen((Position position) {
+        .listen((Position position) async {
       final userLatLng = LatLng(position.latitude, position.longitude);
 
-      final newMarker = Marker(
+      final userMarker = Marker(
         markerId: const MarkerId('user'),
         position: userLatLng,
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
@@ -105,14 +118,115 @@ class _GeofencePageState extends State<GeofencePage> {
 
       setState(() {
         _markerSet.removeWhere((m) => m.markerId.value == 'user');
-        _markerSet.add(newMarker);
+        _markerSet.add(userMarker);
+      });
+
+      if (_polygonPoints.isNotEmpty) {
+        final inside = _isPointInPolygon(userLatLng, _polygonPoints);
+
+        if (inside && !_isInsidePolygon) {
+          _isInsidePolygon = true;
+          _showInsideText = true;
+          _areaStatusText = "Anda berada di dalam area ${widget.name}";
+
+          if (await Vibration.hasVibrator() ?? false) {
+            Vibration.vibrate(duration: 500);
+          }
+
+          await _logUserAreaStatus(
+            areaName: widget.name,
+            status: "MASUK",
+            position: userLatLng,
+          );
+        } else if (!inside && _isInsidePolygon) {
+          _isInsidePolygon = false;
+          _showInsideText = false;
+
+          if (await Vibration.hasVibrator() ?? false) {
+            Vibration.vibrate(duration: 500);
+          }
+          
+
+          await _logUserAreaStatus(
+            areaName: widget.name,
+            status: "KELUAR",
+            position: userLatLng,
+          );
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Kamu telah keluar dari area ${widget.name}."),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+
+        setState(() {});
+      }
+    });
+  }
+
+  Future<void> _logUserAreaStatus({
+    required String areaName,
+    required String status,
+    required LatLng position,
+  }) async {
+    try {
+      await FirebaseFirestore.instance.collection('user_tracking_logs').add({
+        'timestamp': FieldValue.serverTimestamp(),
+        'area_name': areaName,
+        'status': status,
+        'position': {
+          'latitude': position.latitude,
+          'longitude': position.longitude,
+        },
+      });
+    } catch (e) {
+      print("Gagal mengirim log ke Firestore: $e");
+    }
+  }
+
+  void _startTrackingCountListener() {
+    _trackingStream = FirebaseFirestore.instance
+        .collection('user_tracking_logs')
+        .where('area_name', isEqualTo: widget.name)
+        .snapshots()
+        .listen((snapshot) {
+      int masuk = 0;
+      int keluar = 0;
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        if (data['status'] == "MASUK") masuk++;
+        if (data['status'] == "KELUAR") keluar++;
+      }
+
+      setState(() {
+        _masukCount = masuk;
+        _keluarCount = keluar;
       });
     });
+  }
+
+  bool _isPointInPolygon(LatLng point, List<LatLng> polygon) {
+    int intersectCount = 0;
+    for (int j = 0; j < polygon.length - 1; j++) {
+      LatLng a = polygon[j];
+      LatLng b = polygon[j + 1];
+
+      if ((a.longitude > point.longitude) != (b.longitude > point.longitude)) {
+        double atX = (b.latitude - a.latitude) * (point.longitude - a.longitude) /
+            (b.longitude - a.longitude) + a.latitude;
+        if (point.latitude < atX) intersectCount++;
+      }
+    }
+    return (intersectCount % 2) == 1;
   }
 
   @override
   void dispose() {
     _positionStream?.cancel();
+    _trackingStream?.cancel();
     super.dispose();
   }
 
@@ -130,6 +244,18 @@ class _GeofencePageState extends State<GeofencePage> {
               });
             },
           ),
+          // Button Center Map
+          IconButton(
+            icon: const Icon(Icons.center_focus_strong),
+            tooltip: 'Center Map',
+              onPressed: () {
+                if (_mapController != null) {
+                  _mapController!.animateCamera(
+                    CameraUpdate.newLatLngZoom(_initialPos, 17),
+                  );
+                }
+              },
+            ),
         ],
       ),
       body: Stack(
@@ -147,20 +273,67 @@ class _GeofencePageState extends State<GeofencePage> {
             myLocationButtonEnabled: true,
           ),
 
+          // Counter MASUK & KELUAR Selalu Muncul
           Positioned(
-            
-            child: FloatingActionButton.small(
-              heroTag: "centerBtn",
-              onPressed: () {
-                if (_mapController != null) {
-                  _mapController!.animateCamera(
-                    CameraUpdate.newLatLngZoom(_initialPos, 17),
-                  );
-                }
-              },
-              child: const Icon(Icons.center_focus_strong), backgroundColor: Colors.white,
+            top: 20,
+            left: 20,
+            right: 20,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.9),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  Column(
+                    children: [
+                      const Text(
+                        'MASUK',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+                      ),
+                      Text('$_masukCount Kali', style: const TextStyle(color: Colors.black)),
+                    ],
+                  ),
+                  Column(
+                    children: [
+                      const Text(
+                        'KELUAR',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+                      ),
+                      Text('$_keluarCount Kali', style: const TextStyle(color: Colors.black)),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
+
+          // Teks "Anda berada di dalam area"
+          if (_showInsideText)
+              Positioned(
+                top: 100,
+                left: 20,
+                right: 20,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    "Anda berada di dalam area ${widget.name}", // <-- Ganti jadi
+                    semanticsLabel: _areaStatusText ?? '',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
         ],
       ),
     );

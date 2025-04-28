@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "943271321420",
+    "project_id": "geopencingvat",
+    "storage_bucket": "geopencingvat.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:943271321420:android:81f842792e13cf23df39e9",
+        "android_client_info": {
+          "package_name": "com.example.geo_fencing_vat"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBEOT10Rn7hnHLPbOnbpuvZB3qxj03K8RQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
