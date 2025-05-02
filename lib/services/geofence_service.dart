@@ -28,23 +28,19 @@ Future<Map<String, dynamic>?> getPolygonByName(String name) async {
     throw Exception('Failed to fetch detail');
   }
 }
-  Future<List<Map<String, dynamic>>> getPolygonById(String id) async {
+  Future<Map<String, dynamic>?> getPolygonById(String id) async {
   final url = Uri.parse('$baseUrl/locations?search=$id');
   final response = await http.get(url);
 
   if (response.statusCode == 200) {
     final data = json.decode(response.body);
     final List locations = data['data']['locations'];
-
-    return List<Map<String, dynamic>>.from(
-      locations.where((loc) {
-        final locId = loc['id']?.toString().toLowerCase() ?? '';
-        return locId.contains(id.toLowerCase());
-      }),
-    );
+    if (locations.isNotEmpty) {
+      return locations.first;
+    }
+    return null;
   } else {
-    throw Exception('Failed to fetch polygons by ID');
+    throw Exception('Failed to fetch polygon by ID');
   }
 }
-
 }

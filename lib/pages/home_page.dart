@@ -113,7 +113,7 @@ class _HomePageState extends State<HomePage> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => GeofencePage(name: name),
+                          builder: (_) => GeofencePage(id : item['id'], name: name),
                         ),
                       );
                     },
